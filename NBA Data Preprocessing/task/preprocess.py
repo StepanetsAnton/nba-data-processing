@@ -1,7 +1,8 @@
 import pandas as pd
 import os
 import requests
-
+from datetime import datetime
+import re
 # Checking ../Data directory presence
 if not os.path.exists('../Data'):
     os.mkdir('../Data')
@@ -72,5 +73,49 @@ def clean_data(path):
     return df
 
 
+def feature_data(df):
+    df['version'] = df['version'].apply(
+        lambda x: 2000 + int(re.search(r'\d{2}$', x).group()) if isinstance(x, str) else None)
+
+    df['age'] = df['version'] - df['b_day'].dt.year
+
+    df['draft_year'] = df['draft_year'].dt.year
+
+    df['experience'] = df['version'] - df['draft_year']
+
+    df['bmi'] = df.apply(
+        lambda row: row['weight'] / (row['height'] ** 2) if pd.notnull(row['weight']) and pd.notnull(row['height']) and
+                                                            row['height'] > 0 else None, axis=1)
+
+    df = df.drop(columns=['version', 'b_day', 'draft_year', 'weight', 'height'])
+
+    high_cardinality_columns = [col for col in df.columns if df[col].nunique() >= 50 and col != "bmi" and col != "salary"]
+    df = df.drop(columns=high_cardinality_columns)
+
+    return df
+
+def multicol_data(df):
+    df_numeric = df.select_dtypes(include=['float64', 'int64'])
+
+    corr_matrix = df_numeric.corr()
+
+
+    to_drop = set()
+    for i in corr_matrix.columns:
+        for j in corr_matrix.columns:
+            if i != j and i != 'salary' and j != 'salary' and abs(corr_matrix.loc[i, j]) > 0.5:
+
+                if abs(corr_matrix.loc[i, 'salary']) < abs(corr_matrix.loc[j, 'salary']):
+                    to_drop.add(i)
+                else:
+                    to_drop.add(j)
+
+
+    df_numeric = df_numeric.drop(columns=to_drop)
+
+    return df_numeric
+
 cleaned_data = clean_data(data_path)
-print(cleaned_data[['b_day', 'team', 'height', 'weight', 'country', 'draft_round', 'draft_year', 'salary']].head())
+featured_data = feature_data(cleaned_data)
+data_multicol = multicol_data(featured_data)
+print(data_multicol.head())
